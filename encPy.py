@@ -36,14 +36,23 @@ def get_arguments():
 Function reads arguments from config file and passes them on as array
 '''
 def read_config():
-    args = []
+    args = {}
     # Retrieve config information
     config = configparser.ConfigParser()
     config.read('config.cfg')
     hashmode = config['settings']['hashmode']
     crypto_alg = config['settings']['encryptmode']
-    args.append(importlib.import_module('Crypto.Hash.' + hashmode))
-    args.append(importlib.import_module('Crypto.Cipher.' + crypto_alg))
+    key_size = 24
+    if 'aes' in crypto_alg.lower():
+        if '128' in crypto_alg:
+            key_size = 16
+        else:
+            key_size = 32
+    # dynamically import the appropriate libraries
+    args["hashmode"] = importlib.import_module('Crypto.Hash.' + hashmode)
+    args["crypto_alg"] = importlib.import_module('Crypto.Cipher.' + crypto_alg[:3])
+    args["key_size"] = key_size
+                 
     return args
 
 '''
@@ -53,21 +62,21 @@ def encrypt_file(data, password, args):
     # Generate the needed salt bytes
     salt = get_random_bytes(48)
     # Generate the master key
-    m_key = PBKDF2(password, salt[0:16], count=1000000, hmac_hash_module=args[0])
+    m_key = PBKDF2(password, salt[0:16], args["key_size"], count=1000000, hmac_hash_module=args["hashmode"])
     # Generate encryption key
-    e_key = PBKDF2(m_key, salt[16:32], count=1, hmac_hash_module=args[0])
-    h_key = PBKDF2(m_key, salt[32:], count=1, hmac_hash_module=args[0])
+    e_key = PBKDF2(m_key, salt[16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    h_key = PBKDF2(m_key, salt[32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
 
     # Create HMAC
-    mac = HMAC.new(h_key, digestmod=args[0])
+    mac = HMAC.new(h_key, digestmod=args["hashmode"])
     
     # Generate initialization vector
     initial_v = get_random_bytes(16)
     
     # Create AES cipher object in CBC mode with iv and encryption key
-    cipher = args[1].new(e_key, args[1].MODE_CBC, iv=initial_v)
+    cipher = args["crypto_alg"].new(e_key, args["crypto_alg"].MODE_CBC, iv=initial_v)
     # Encrypt and create ciphertext - pad data to match block size for CBC
-    ciphertext = cipher.encrypt(pad(data, args[1].block_size))
+    ciphertext = cipher.encrypt(pad(data, args["crypto_alg"].block_size))
     
     # Update the hmac
     mac.update(salt + initial_v + ciphertext)
@@ -81,12 +90,12 @@ def decrypt_file(data, password, args):
     # Retrieve needed salt
     d_salt = data[64:112]
     # Get master decrypt key
-    md_key = PBKDF2(password, d_salt[0:16], count=1000000, hmac_hash_module=args[0])
+    md_key = PBKDF2(password, d_salt[0:16], args["key_size"], count=1000000, hmac_hash_module=args["hashmode"])
     # Derive encrypt key and hmac key
-    de_key = PBKDF2(md_key, d_salt[16:32], count=1, hmac_hash_module=args[0])
-    dh_key = PBKDF2(md_key, d_salt[32:], count=1, hmac_hash_module=args[0])
+    de_key = PBKDF2(md_key, d_salt[16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    dh_key = PBKDF2(md_key, d_salt[32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
     # Create a decrypt hmac object
-    d_mac = HMAC.new(dh_key, digestmod=args[0])
+    d_mac = HMAC.new(dh_key, digestmod=args["hashmode"])
     d_mac.update(data[64:])
     # Retrieve original hmac
     o_mac = data[0:64]
@@ -100,9 +109,9 @@ def decrypt_file(data, password, args):
     # Retrieve iv
     iv = data[112:128]
     # Decryption cipher object
-    d_cipher = args[1].new(de_key, args[1].MODE_CBC, iv)
+    d_cipher = args["crypto_alg"].new(de_key, args["crypto_alg"].MODE_CBC, iv)
     # Decrypted bytes - Remove block size padding
-    d_crypt_data = unpad(d_cipher.decrypt(data[128:]), args[1].block_size)    
+    d_crypt_data = unpad(d_cipher.decrypt(data[128:]), args["crypto_alg"].block_size)    
     return d_crypt_data
 
 '''
