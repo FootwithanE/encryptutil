@@ -1,11 +1,11 @@
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import HMAC
 from Crypto.Random import get_random_bytes
-from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 import configparser
 import importlib
 import argparse
+import pickle
 import sys
 
 '''
@@ -52,6 +52,7 @@ def read_config():
     args["hashmode"] = importlib.import_module('Crypto.Hash.' + hashmode)
     args["crypto_alg"] = importlib.import_module('Crypto.Cipher.' + crypto_alg[:3])
     args["key_size"] = key_size
+    args["salt"] = get_random_bytes(48)
                  
     return args
 
@@ -59,13 +60,11 @@ def read_config():
 Encrypt a file and return bytes to write
 '''
 def encrypt_file(data, password, args):
-    # Generate the needed salt bytes
-    salt = get_random_bytes(48)
     # Generate the master key
-    m_key = PBKDF2(password, salt[0:16], args["key_size"], count=1000000, hmac_hash_module=args["hashmode"])
+    m_key = PBKDF2(password, args["salt"][0:16], args["key_size"], count=100000, hmac_hash_module=args["hashmode"])
     # Generate encryption key
-    e_key = PBKDF2(m_key, salt[16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
-    h_key = PBKDF2(m_key, salt[32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    e_key = PBKDF2(m_key, args["salt"][16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    h_key = PBKDF2(m_key, args["salt"][32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
 
     # Create HMAC
     mac = HMAC.new(h_key, digestmod=args["hashmode"])
@@ -79,26 +78,39 @@ def encrypt_file(data, password, args):
     ciphertext = cipher.encrypt(pad(data, args["crypto_alg"].block_size))
     
     # Update the hmac
-    mac.update(salt + initial_v + ciphertext)
+    mac.update(initial_v + ciphertext)
+    args["data"] = mac.digest() + initial_v + ciphertext
+    print(mac.digest())
     
-    return mac.digest() + salt + initial_v + ciphertext
+    # Convert module obj to str for serialization
+    args["hashmode"] = args["hashmode"].__name__
+    args["crypto_alg"] = args["crypto_alg"].__name__
+    
+    # serialize dictionary to byte stream
+    encrypted_structure = pickle.dumps(args) 
+    
+    return encrypted_structure
 
 '''
 Decrypt File encrypted by this program
 '''
-def decrypt_file(data, password, args):    
-    # Retrieve needed salt
-    d_salt = data[64:112]
+def decrypt_file(data, password):    
+    args = pickle.loads(data)
+    # dynamically load appropriate modules
+    args["hashmode"] = importlib.import_module(args["hashmode"])
+    args["crypto_alg"] = importlib.import_module(args["crypto_alg"])
     # Get master decrypt key
-    md_key = PBKDF2(password, d_salt[0:16], args["key_size"], count=1000000, hmac_hash_module=args["hashmode"])
+    md_key = PBKDF2(password, args["salt"][0:16], args["key_size"], count=1000000, hmac_hash_module=args["hashmode"])
     # Derive encrypt key and hmac key
-    de_key = PBKDF2(md_key, d_salt[16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
-    dh_key = PBKDF2(md_key, d_salt[32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    de_key = PBKDF2(md_key, args["salt"][16:32], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
+    dh_key = PBKDF2(md_key, args["salt"][32:], args["key_size"], count=1, hmac_hash_module=args["hashmode"])
     # Create a decrypt hmac object
     d_mac = HMAC.new(dh_key, digestmod=args["hashmode"])
-    d_mac.update(data[64:])
+    d_mac.update(args["data"][64:])
+    print(d_mac.digest())
     # Retrieve original hmac
-    o_mac = data[0:64]
+    o_mac = args["data"][0:64]
+    print(o_mac)
     # Compare and authenticate HMAC
     try:
         d_mac.verify(o_mac)
@@ -107,11 +119,11 @@ def decrypt_file(data, password, args):
         print("Message not authenticated")
         sys.exit(1)
     # Retrieve iv
-    iv = data[112:128]
+    iv = args["data"][64:80]
     # Decryption cipher object
     d_cipher = args["crypto_alg"].new(de_key, args["crypto_alg"].MODE_CBC, iv)
     # Decrypted bytes - Remove block size padding
-    d_crypt_data = unpad(d_cipher.decrypt(data[128:]), args["crypto_alg"].block_size)    
+    d_crypt_data = unpad(d_cipher.decrypt(args["data"][80:]), args["crypto_alg"].block_size)    
     return d_crypt_data
 
 '''
@@ -132,7 +144,7 @@ def file_handler(options, args):
         file.write(ecn_file)
         file.close()
     else:
-        dec_file = decrypt_file(data, options.password, args)
+        dec_file = decrypt_file(data, options.password)
         file = open(options.output, "wb")
         file.write(dec_file)
         file.close()
