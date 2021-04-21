@@ -1,6 +1,8 @@
 {
     "cSpell.ignoreWords": [
+        "foote",
         "hmac",
+        "kdftype",
         "pbkdf",
         "unpad"
     ]
