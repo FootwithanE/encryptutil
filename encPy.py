@@ -9,6 +9,10 @@ file to encrypt and decrypt files using an end-user provided password.
 
 This program supports AES128, AES256, and Triple DES (3DES) along with HMAC-HASH
 SHA256 or SHA512.
+
+100000  iterations = .07 seconds
+1000000 iterations = .71 seconds
+1250000 iterations = .91 seconds
 """
 
 from Crypto.Protocol.KDF import PBKDF2
@@ -19,6 +23,7 @@ import configparser
 import importlib
 import argparse
 import pickle
+import time
 import sys
 
 def get_arguments():
@@ -57,7 +62,7 @@ def config_handler():
     '''
     # Retrieve config file information
     config = configparser.ConfigParser()
-    config.read('config.cfg')
+    config.read('enc_config.cfg')
     
     hashmode = config['settings']['hashmode']
     crypto_alg = config['settings']['encryptmode']
@@ -105,7 +110,10 @@ def encrypt_file(data, password, header):
     :return: a serialized dictionary containing encrypted data and required decryption information
     '''
     # Generate the master key and two derived keys for encryption and hmac
+    start = time.time()
     master_key = PBKDF2(password, header["salt"][0:16], header["key_size"], count=header["count"], hmac_hash_module=header["hashmode"])
+    end = time.time()
+    print(end - start)
     encrypt_key = PBKDF2(master_key, header["salt"][16:32], header["key_size"], count=1, hmac_hash_module=header["hashmode"])
     mac_key = PBKDF2(master_key, header["salt"][32:], header["key_size"], count=1, hmac_hash_module=header["hashmode"])
     
@@ -214,9 +222,3 @@ if __name__ == '__main__':
     header = config_handler()
     # Handle file and encryption or decryption
     file_handler(args, header)
-        
-        
-    
-       
-    
-    
