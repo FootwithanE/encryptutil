@@ -39,7 +39,8 @@ def get_arguments():
     
     # Adding commandline arguments
     parser.add_argument('-m', '--mode', help="Encrypt or Decrypt (e or d)")
-    parser.add_argument('-f', '--filepath', help="Absolute filepath / filename")
+    parser.add_argument(
+        '-f', '--filepath', help="Absolute filepath or filename to encrypt (mode e) or decrypt (mode d)")
     parser.add_argument('-p', '--password', help="File password")
     parser.add_argument('-o', '--output', help="Decrypted filename")
     
@@ -110,10 +111,7 @@ def encrypt_file(data, password, header):
     :return: a serialized dictionary containing encrypted data and required decryption information
     '''
     # Generate the master key and two derived keys for encryption and hmac
-    start = time.time()
     master_key = PBKDF2(password, header["salt"][0:16], header["key_size"], count=header["count"], hmac_hash_module=header["hashmode"])
-    end = time.time()
-    print(end - start)
     encrypt_key = PBKDF2(master_key, header["salt"][16:32], header["key_size"], count=1, hmac_hash_module=header["hashmode"])
     mac_key = PBKDF2(master_key, header["salt"][32:], header["key_size"], count=1, hmac_hash_module=header["hashmode"])
     
@@ -209,6 +207,7 @@ def file_handler(args, header):
         file = open(args.filepath + header["extension"], "wb")
         file.write(ecn_file)
         file.close()
+        print('File successfully encrypted.')
     else:
         dec_file = decrypt_file(data, args.password)
         file = open(args.output, "wb")
