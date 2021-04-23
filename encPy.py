@@ -9,10 +9,6 @@ file to encrypt and decrypt files using an end-user provided password.
 
 This program supports AES128, AES256, and Triple DES (3DES) along with HMAC-HASH
 SHA256 or SHA512.
-
-100000  iterations = .07 seconds
-1000000 iterations = .71 seconds
-1250000 iterations = .91 seconds
 """
 
 from Crypto.Protocol.KDF import PBKDF2
@@ -23,7 +19,6 @@ import configparser
 import importlib
 import argparse
 import pickle
-import time
 import sys
 
 def get_arguments():
@@ -36,7 +31,8 @@ def get_arguments():
     """    
     # Initialize Parser object
     parser = argparse.ArgumentParser(description="Encrypt a file.")
-    
+    # Initialize Default output argument
+    default_out = str
     # Adding commandline arguments
     parser.add_argument('-m', '--mode', help="Encrypt or Decrypt (e or d)")
     parser.add_argument(
@@ -49,7 +45,7 @@ def get_arguments():
     
     # If less than three arguments provided
     if len(sys.argv) < 3:
-        print('Not all arguments provided.')
+        print('Not enough arguments provided.')
         sys.exit
     
     return args
@@ -168,7 +164,7 @@ def decrypt_file(data, password):
     # Compare and authenticate HMAC
     try:
         mac.verify(o_mac)
-        print("Message is authentic")
+        print("Message is authentic. Decryption continuing.")
     except ValueError:
         print("Message not authenticated")
         sys.exit(1)
